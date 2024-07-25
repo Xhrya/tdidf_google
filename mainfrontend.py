@@ -54,42 +54,65 @@ def display_page(pathname):
     return html.Div([html.H1("404: Page not found")])
 
 @app.callback(
-    [Output('tfidf-bar-chart', 'figure'),
-     Output('sentiment-pie-chart', 'figure')],
-    [Input('url', 'pathname')]
+    [
+        Output('sentiment-graph', 'figure'),
+        Output('sentiment-graph', 'style'),
+        Output('most_recent_text_id', 'children'),
+        Output('most_recent_text_content', 'children'),
+        Output('most_recent_text_sentiment', 'children'),
+    ],
+    [Input('submit-button', 'n_clicks')],
+    [State('text-input', 'value')]
 )
-def update_sentiment(pathname):
-    if pathname == '/sentiment':
+def update_sentiment(n_clicks, text_value):
+    sentiment_map = {"positive": 1, "negative": -1, "neutral": 0}
+    
+    if n_clicks > 0:
         try:
-            response = requests.get('http://127.0.0.1:5000/api/tfidf')
+            # Send a GET request to the API with text as a query parameter
+            response = requests.get('http://127.0.0.1:8080/api/text', params={'text': text_value})
+            response.raise_for_status()  # Raise an exception for HTTP errors
+
+            # Print status code and raw response for debugging
+            print(f"Response status code: {response.status_code}")
+            print(f"Raw response content: {response.text}")
+
+            # Check if response is empty
+            if not response.text:
+                raise ValueError("Empty response received")
+
+            # Try to parse JSON response
             data = response.json()
+            print(f"Parsed JSON data: {data}")
 
-            top_terms = data['top_terms']
-            sentiment_results = data['sentiment_results']
+            most_recent_text_id = ""
+            most_recent = None
+            most_recent_timestamp = 0
+            sentiment_data = []
 
-            terms = [term for term, _ in top_terms]
-            scores = [score for _, score in top_terms]
-            sentiment_scores = [result[0] for result in sentiment_results.values()]
-            sentiment_magnitudes = [result[1] for result in sentiment_results.values()]
+            for k, v in data.items():
+                # Find the most recent entry
+                cur_timestamp = datetime.datetime.strptime(v["timestamp"][:-6], "%Y-%m-%d %H:%M:%S.").timestamp()
+                if cur_timestamp >= most_recent_timestamp:
+                    most_recent_timestamp = cur_timestamp
+                    most_recent_text_id = k
+                    most_recent = v
 
-            # Create TF-IDF bar chart
-            tfidf_figure = go.Figure(data=[
-                go.Bar(x=terms, y=scores, name='TF-IDF Scores')
-            ])
-            tfidf_figure.update_layout(title='Top TF-IDF Terms')
+                # Extract sentiment data
+                sentiment_data.append({'text': v['text'], 'sentiment': sentiment_map[v['sentiment']]})
 
-            # Create Sentiment Pie chart
-            sentiment_figure = go.Figure(data=[
-                go.Pie(labels=['Positive', 'Neutral', 'Negative'], values=sentiment_scores, name='Sentiment')
-            ])
-            sentiment_figure.update_layout(title='Sentiment Analysis')
-
-            return tfidf_figure, sentiment_figure
-
-        except Exception as e:
-            print(f"An error occurred in update_sentiment: {e}")
-            return go.Figure(), go.Figure()
-    return go.Figure(), go.Figure()
+            # Create a bar chart using Plotly
+            fig = px.bar(sentiment_data, x='text', y='sentiment', title='Sentiment Analysis')
+            return fig, {}, f"Most Recent Text ID: {most_recent_text_id}", f"Content: {most_recent['text']}", f"Sentiment: {most_recent['sentiment']}"
+        
+        except requests.RequestException as e:
+            print(f"Request error: {e}")
+            return {}, {'display': 'none'}, "Error", "Error", "Error"
+        except ValueError as e:
+            print(f"JSON decode error: {e}")
+            return {}, {'display': 'none'}, "Error", "Error", "Error"
+    else:
+        return {}, {'display': 'none'}, "Most Recent Text ID: Not Loaded", "Content: Not Loaded", "Sentiment: Not Loaded"
 
 if __name__ == '__main__':
     app.run_server(debug=True)
