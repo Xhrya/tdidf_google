@@ -5,6 +5,7 @@ from dash.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 import requests
+from topic_modeling import topic_modeling_layout
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
@@ -41,6 +42,8 @@ app.layout = html.Div([
 def display_page(pathname):
     if pathname == '/':
         return html.Div([html.H1("Home Page")])
+    if pathname == '/topic_modeling':
+        return topic_modeling_layout
     elif pathname == '/sentiment':
         return html.Div([
             html.H1("Sentiment Analysis using TF-IDF and GCP NLP"),
