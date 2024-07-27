@@ -11,10 +11,9 @@ import io
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-# Layout for ESG Data and Topic Modeling
+# ESG Data and Topic Modeling Layout
 esg_layout = html.Div([
     html.H1("ESG Data and Topic Modeling"),
-    
     html.Div([
         html.H2("Select Bank:"),
         dcc.Dropdown(
@@ -30,9 +29,7 @@ esg_layout = html.Div([
             value='jpmorgan'
         ),
     ]),
-
     html.Button('Scrape Data', id='scrape-button', n_clicks=0),
-
     dcc.Loading(
         id="loading-esg",
         type="circle",
@@ -44,10 +41,9 @@ esg_layout = html.Div([
     )
 ])
 
-# Layout for Web Scraping
+# Web Scraping Layout
 scraping_layout = html.Div([
-    html.H1("ESG Data Analysis"),
-    
+    html.H1("Web Scraping"),
     dcc.Upload(
         id='upload-data',
         children=html.Div(['Drag and Drop or ', html.A('Select Files')]),
@@ -63,13 +59,7 @@ scraping_layout = html.Div([
         },
         multiple=True
     ),
-
-    dcc.Loading(
-        id="loading-upload",
-        type="circle",
-        children=html.Div(id='output-data-upload')
-    ),
-
+    html.Div(id='output-data-upload'),
     html.Div([
         dcc.Input(id="input-url", type="text", placeholder="Enter URL to scrape"),
         html.Button('Scrape URL', id='scrape-url-button', n_clicks=0),
@@ -81,37 +71,62 @@ scraping_layout = html.Div([
     ])
 ])
 
-# Navbar for navigation
+# Sentiment Analysis Layout
+sentiment_layout = html.Div([
+    html.H1("Sentiment Analysis using TF-IDF and GCP NLP"),
+    dcc.Input(id='text-input', type='text', placeholder='Enter text for analysis'),
+    html.Button('Submit', id='submit-button', n_clicks=0),
+    dcc.Loading(
+        id="loading-sentiment",
+        type="circle",
+        children=[
+            dcc.Graph(id='sentiment-graph'),
+            html.Div(id='most_recent_text_id'),
+            html.Div(id='most_recent_text_content'),
+            html.Div(id='most_recent_text_sentiment')
+        ]
+    )
+])
+
+# Navbar
 navbar = dbc.NavbarSimple(
     children=[
-        dbc.NavItem(dbc.NavLink("ESG Data and Topic Modeling", href="/", id="nav-link-esg")),
-        dbc.NavItem(dbc.NavLink("Web Scraping", href="/scraping", id="nav-link-scraping")),
-                dbc.NavItem(dbc.NavLink("Web Scraping", href="/scraping", id="nav-link-scraping")),
-
+        dbc.NavLink("Home", href="/", id="home-link"),
+        dbc.NavLink("ESG Data and Topic Modeling", href="/esg", id="esg-link"),
+        dbc.NavLink("Web Scraping", href="/scraping", id="scraping-link"),
+        dbc.NavLink("Sentiment Analysis", href="/sentiment", id="sentiment-link"),
     ],
-    brand="Dashboard",
+    brand="My Dashboard",
     brand_href="/",
     color="primary",
     dark=True,
 )
 
-# Main layout
+# Main Layout
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     navbar,
-    html.Div(id='page-content')
+    dcc.Loading(
+        id="loading",
+        children=[html.Div(id='page-content')],
+        type="circle"
+    )
 ])
 
 # Callbacks for page navigation
-@app.callback(Output('page-content', 'children'),
-              [Input('url', 'pathname')])
+@app.callback(
+    Output('page-content', 'children'),
+    [Input('url', 'pathname')]
+)
 def display_page(pathname):
-    if (pathname == '/scraping'):
-        return scraping_layout
-    if (pathname == '/topic_modeling_scraping'):
-        return scraping_layout
-    else:
+    if pathname == '/esg':
         return esg_layout
+    elif pathname == '/scraping':
+        return scraping_layout
+    elif pathname == '/sentiment':
+        return sentiment_layout
+    else:
+        return html.Div([html.H1("Home Page")])
 
 # Callback for handling PDF uploads
 @app.callback(Output('output-data-upload', 'children'),
