@@ -1,4 +1,6 @@
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
+from PyPDF2 import PdfReader
+from collections import Counter
 import requests
 from bs4 import BeautifulSoup
 from textblob import TextBlob
@@ -7,11 +9,14 @@ import numpy as np
 from gensim import corpora, models
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-import gensim
-import textblob
 import nltk
 import pandas as pd
 import os
+import io
+# import tensorflow_decision_forests as tfdf
+# print(tfdf.__version__)
+
+# from sklearn.feature_extraction import TfidfVectorizer
 
 app = Flask(__name__)
 
@@ -173,6 +178,72 @@ mapping_df = pd.read_csv('../resources/buzzword_to_topic_mapping.csv')
 keywords = pd.read_csv('../resources/esg_keywords.txt', header=None).squeeze().tolist()
 buzzwords = mapping_df['Buzzword'].tolist()
 
+
+def preprocess_text(text):
+    stop_words = set(nltk.corpus.stopwords.words('englist'))
+    tokens = nltk.tokenize.word_tokenize(text.lower())
+    tokens = [word for word in tokens if word.isalpha() and word not in stop_words]
+    return ''.join(tokens)
+
+
+def extract_text_from_pdf(file):
+    pdf_reader = PdfReader(io.BytesIO(file.read()))
+    text=''
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
+def extract_text_from_web(urls):
+    all_text=[]
+    for url in urls:
+        try:
+            response =requests.get(url)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text = soup.get_text()
+            all_text.append(text)
+        except Exception as e:
+            print(f'Error scraping {url}: {str(e)}')
+    return ''.join(all_text)
+
+# @app.route('/tfdf_scraping', methods=['POST'])
+# def tfdf_scraping():
+#     if 'file' not in request.files and 'url' not in requst.form:
+#         return jsonify({"error": "No file or URL provided"}), 400
+
+#     if 'file' in reqest.files:
+#         file = request.files['file']
+#         if file.filename.endswith('.pdf'):
+#             text = extract_text_from_pdf(file)
+#         else:
+#             return jsonify({"error": "Invalid file type"}), 400
+        
+#     elif 'url' in request.form:
+#         urls_list = request.form.getlist('url')
+#         text = extract_text_from_web(urls_list)
+#     else:
+#         return jsonify({"error": "Invalid request"}), 400
+#     processing_text = preprocess_text(text)
+
+#     vectorizer = TfidfVectorizer()
+#     X= vectorizer.fit_transform([processed_text])
+#     df = pd.DataFrame.sparse.from_spmartrix(C)
+
+#     try:
+#         model = tfdf.keras.RandomForestModel(task =tfdf.keras.tasks.Classification(num_classes=2))
+#         tfdf_dataset = tfdf.keras.pd_dataframe_to_tf_dataset(df, task=tfdf.keras.tasks.Classification(num_classes=2))
+        
+#         # Predict using the TFDF model
+#         predictions = model.predict(tfdf_dataset)
+        
+#         # Process predictions (example: convert to list)
+#         predictions_list = [prediction.numpy().tolist() for prediction in predictions]
+
+#         return jsonify({'predictions': predictions_list})
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+
+
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -208,8 +279,6 @@ def upload_file():
             'top_buzzwords': top_buzzwords
         })
     return jsonify({"error": "Invalid file type"}), 400
-
-
 
 def scrape_esg_from_website(urls):
     all_data = {
@@ -293,7 +362,6 @@ def scrape_esg_data(bank):
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/scrape', methods=['POST'])
 def scrape_website():
