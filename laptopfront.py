@@ -8,30 +8,13 @@ import requests
 import pandas as pd
 import base64
 import io
+from textblob import TextBlob
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-# Sample Data for ESG Graphs
-sample_esg_data = {
-    'environment': 70,
-    'social': 60,
-    'governance': 50
-}
-
-sample_topics = ['Climate Change', 'Diversity', 'Corporate Governance']
-sample_sentiments = {'Climate Change': 0.8, 'Diversity': 0.6, 'Corporate Governance': 0.4}
-
-# Function to create sample ESG bar graph
-def create_esg_bar_graph(data):
-    df = pd.DataFrame(data.items(), columns=['Category', 'Score'])
-    fig = px.bar(df, x='Category', y='Score', title='ESG Scores')
-    return fig
-
-# Function to create sample topic pie chart
-def create_topic_pie_chart(data):
-    df = pd.DataFrame(data.items(), columns=['Topic', 'Relevance'])
-    fig = px.pie(df, names='Topic', values='Relevance', title='Topic Modeling')
-    return fig
+# Load mappings and keywords
+buzzword_topic_mapping = pd.read_csv('../resources/buzzword_to_topic_mapping.csv').set_index('Buzzword')['Topic'].to_dict()
+topic_esg_mapping = pd.read_csv('../resources/esg_top_topic_mappings.csv').set_index('Topic')['ESG'].to_dict()
 
 # ESG Data and Topic Modeling Layout
 esg_layout = html.Div([
@@ -57,44 +40,11 @@ esg_layout = html.Div([
         type="circle",
         children=[
             html.Div(id='esg-data'),
-            dcc.Graph(id='esg-bar-graph', figure=create_esg_bar_graph(sample_esg_data)),
-            dcc.Graph(id='topic-pie-chart', figure=create_topic_pie_chart(sample_sentiments)),
+            html.Div(id='topic-modeling'),
             html.Div(id='topic-sentiments')
         ]
     )
 ])
-
-
-# # ESG Data and Topic Modeling Layout
-# esg_layout = html.Div([
-#     html.H1("ESG Data and Topic Modeling"),
-#     html.Div([
-#         html.H2("Select Bank:"),
-#         dcc.Dropdown(
-#             id='bank-dropdown',
-#             options=[
-#                 {'label': 'JPMorgan', 'value': 'jpmorgan'},
-#                 {'label': 'Goldman Sachs', 'value': 'goldman'},
-#                 {'label': 'Barclays', 'value': 'barclays'},
-#                 {'label': 'HSBC', 'value': 'hsbc'},
-#                 {'label': 'Morgan Stanley', 'value': 'morgan_stanley'},
-#                 {'label': 'Deutsche Bank', 'value': 'db'}
-#             ],
-#             value='jpmorgan'
-#         ),
-#     ]),
-#     html.Button('Scrape Data', id='scrape-button', n_clicks=0),
-#     dcc.Loading(
-#         id="loading-esg",
-#         type="circle",
-#         children=[
-#             html.Div(id='esg-data'),
-#             html.Div(id='topic-modeling'),
-#             html.Div(id='topic-sentiments')
-#         ]
-#     )
-# ])
-
 
 # Web Scraping Layout
 scraping_layout = html.Div([
@@ -129,18 +79,22 @@ scraping_layout = html.Div([
 # Sentiment Analysis Layout
 sentiment_layout = html.Div([
     html.H1("Sentiment Analysis using TF-IDF and GCP NLP"),
-    dcc.Input(id='text-input', type='text', placeholder='Enter text for analysis'),
-    html.Button('Submit', id='submit-button', n_clicks=0),
-    dcc.Loading(
-        id="loading-sentiment",
-        type="circle",
-        children=[
-            dcc.Graph(id='sentiment-graph'),
-            html.Div(id='most_recent_text_id'),
-            html.Div(id='most_recent_text_content'),
-            html.Div(id='most_recent_text_sentiment')
-        ]
-    )
+    dcc.Upload(
+        id='upload-sentiment-data',
+        children=html.Div(['Drag and Drop or ', html.A('Select Files')]),
+        style={
+            'width': '100%',
+            'height': '60px',
+            'lineHeight': '60px',
+            'borderWidth': '1px',
+            'borderStyle': 'dashed',
+            'borderRadius': '5px',
+            'textAlign': 'center',
+            'margin': '10px'
+        },
+        multiple=True
+    ),
+    html.Div(id='sentiment-output'),
 ])
 
 # Navbar
@@ -183,15 +137,76 @@ def display_page(pathname):
     else:
         return html.Div([html.H1("Home Page")])
 
-# Callback for handling PDF uploads
-@app.callback(Output('output-data-upload', 'children'),
-              Input('upload-data', 'contents'),
-              State('upload-data', 'filename'))
+# Callback for handling PDF uploads in the sentiment analysis page
+@app.callback(
+    Output('sentiment-output', 'children'),
+    Input('upload-sentiment-data', 'contents'),
+    State('upload-sentiment-data', 'filename')
+)
+def update_sentiment_output(list_of_contents, list_of_names):
+    if list_of_contents is not None:
+        children = [parse_sentiment_contents(c, n) for c, n in zip(list_of_contents, list_of_names)]
+        return children
+    return None
+
+def parse_sentiment_contents(contents, filename):
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    try:
+        if filename.endswith('.pdf'):
+            # Process the PDF file
+            response = requests.post("http://localhost:5050/upload", files={"file": (filename, io.BytesIO(decoded))})
+            data = response.json()
+            if 'error' in data:
+                return html.Div(['There was an error processing this file.'])
+
+            # Extract buzzwords and keywords
+            buzzwords = data.get('buzzwords', [])
+            keywords = data.get('keywords', [])
+            
+            # Analyze sentiment for buzzwords
+            buzzword_sentiments = [(buzzword, TextBlob(buzzword).sentiment.polarity) for buzzword in buzzwords]
+            keyword_sentiments = [(keyword, TextBlob(keyword).sentiment.polarity) for keyword in keywords]
+            
+            # Create dataframes for visualization
+            buzzword_df = pd.DataFrame(buzzword_sentiments, columns=['Buzzword', 'Sentiment'])
+            keyword_df = pd.DataFrame(keyword_sentiments, columns=['Keyword', 'Sentiment'])
+
+            # Create figures
+            buzzword_fig = px.bar(buzzword_df, x='Buzzword', y='Sentiment', title='Buzzword Sentiment Analysis')
+            keyword_fig = px.bar(keyword_df, x='Keyword', y='Sentiment', title='ESG Keywords Sentiment Analysis')
+
+            # Create mapping displays
+            buzzword_topic_df = pd.DataFrame(list(buzzword_topic_mapping.items()), columns=['Buzzword', 'Topic'])
+            topic_esg_df = pd.DataFrame(list(topic_esg_mapping.items()), columns=['Topic', 'ESG'])
+
+            buzzword_topic_fig = px.sunburst(buzzword_topic_df, path=['Buzzword', 'Topic'], title='Buzzword to Topic Mapping')
+            topic_esg_fig = px.sunburst(topic_esg_df, path=['Topic', 'ESG'], title='Topic to ESG Mapping')
+
+            return html.Div([
+                html.H5(filename),
+                html.H6('Buzzword Sentiments'),
+                dcc.Graph(figure=buzzword_fig),
+                html.H6('ESG Keywords Sentiments'),
+                dcc.Graph(figure=keyword_fig),
+                html.H6('Buzzword to Topic Mapping'),
+                dcc.Graph(figure=buzzword_topic_fig),
+                html.H6('Topic to ESG Mapping'),
+                dcc.Graph(figure=topic_esg_fig)
+            ])
+    except Exception as e:
+        print(e)
+        return html.Div(['There was an error processing this file.'])
+
+# Callback for handling PDF uploads in the web scraping page
+@app.callback(
+    Output('output-data-upload', 'children'),
+    Input('upload-data', 'contents'),
+    State('upload-data', 'filename')
+)
 def update_output(list_of_contents, list_of_names):
     if list_of_contents is not None:
-        children = [
-            parse_contents(c, n) for c, n in zip(list_of_contents, list_of_names)
-        ]
+        children = [parse_contents(c, n) for c, n in zip(list_of_contents, list_of_names)]
         return children
     return None
 
@@ -244,11 +259,13 @@ def scrape_data(n_clicks, bank):
         topics = data.get('topic_modeling', [])
         sentiments = data.get('topic_sents', {})
 
+        esg_values = [esg_data.get('environment', 0), esg_data.get('social', 0), esg_data.get('governance', 0)]
+        esg_labels = ['Environment', 'Social', 'Governance']
+        esg_fig = px.pie(values=esg_values, names=esg_labels, title='ESG Distribution')
+
         esg_div = html.Div([
             html.H3("ESG Data"),
-            html.P(f"Environment: {esg_data.get('environment')}"),
-            html.P(f"Social: {esg_data.get('social')}"),
-            html.P(f"Governance: {esg_data.get('governance')}")
+            dcc.Graph(figure=esg_fig)
         ])
 
         topic_div = html.Div([
